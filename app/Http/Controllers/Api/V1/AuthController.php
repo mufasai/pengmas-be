@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use App\Models\User;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
 use App\Mail\VerifyEmailOtp;
 use App\Mail\ForgotPasswordOtp;
@@ -33,7 +34,11 @@ class AuthController extends Controller
             'email_verification_expires_at' => Carbon::now()->addMinutes(15),
         ]);
 
-        Mail::to($user->email)->send(new VerifyEmailOtp($otp));
+        try {
+            Mail::to($user->email)->send(new VerifyEmailOtp($otp));
+        } catch (\Throwable $e) {
+            Log::error('Failed to send verification email: ' . $e->getMessage());
+        }
 
         return response()->json([
             'message' => 'Registrasi berhasil. Silakan cek email Anda untuk kode verifikasi.',
@@ -105,7 +110,11 @@ class AuthController extends Controller
             ]
         );
 
-        Mail::to($request->email)->send(new ForgotPasswordOtp($otp));
+        try {
+            Mail::to($request->email)->send(new ForgotPasswordOtp($otp));
+        } catch (\Throwable $e) {
+            Log::error('Failed to send forgot password email: ' . $e->getMessage());
+        }
 
         return response()->json(['message' => 'Kode pemulihan password telah dikirim ke email Anda.']);
     }
