@@ -13,23 +13,75 @@ use Illuminate\Support\Facades\DB;
 
 class TransactionController extends Controller
 {
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
-        $transactions = Transaction::with(['details.menu', 'user'])
-            ->orderBy('created_at', 'desc')
-            ->paginate(20);
+        $user = $request->user();
+
+        $query = Transaction::with(['details.menu', 'user']);
+
+        // Kasir only sees their own transactions
+        if ($user && $user->role === 'kasir') {
+            $query->where('user_id', $user->id);
+        } elseif ($request->filled('user_id')) {
+            $query->where('user_id', $request->user_id);
+        }
+
+        // Search by transaction code
+        if ($request->filled('search')) {
+            $query->where('transaction_code', 'LIKE', '%' . $request->search . '%');
+        }
+
+        // Filter by date
+        if ($request->filled('start_date')) {
+            $query->whereDate('created_at', '>=', $request->start_date);
+        }
+        if ($request->filled('end_date')) {
+            $query->whereDate('created_at', '<=', $request->end_date);
+        }
+
+        // Filter by payment method
+        if ($request->filled('payment_method') && !in_array($request->payment_method, ['all', 'Semua Metode', ''])) {
+            $method = $request->payment_method;
+            if ($method === 'QRIS' || $method === 'Digital') {
+                $query->whereIn('payment_method', ['QRIS', 'Digital']);
+            } else {
+                $query->where('payment_method', $method);
+            }
+        }
+
+        // Calculate summary cards
+        $summaryQuery = clone $query;
+        $totalTransactions = $summaryQuery->count();
+
+        $todayQuery = (clone $query)->whereDate('created_at', now()->toDateString());
+        $todayIncome = (clone $todayQuery)->sum('total_amount');
+        $cashCount = (clone $query)->where('payment_method', 'Tunai')->count();
+        $qrisCount = (clone $query)->whereIn('payment_method', ['QRIS', 'Digital'])->count();
+
+        $transactions = $query->orderBy('created_at', 'desc')->paginate(20);
 
         $transactions->getCollection()->transform(function ($transaction) {
             return $this->formatTransaction($transaction);
         });
 
-        return response()->json($transactions);
+        return response()->json([
+            'summary' => [
+                'total_transactions' => $totalTransactions,
+                'today_income' => (int) $todayIncome,
+                'cash_count' => $cashCount,
+                'qris_count' => $qrisCount,
+            ],
+            'data' => $transactions->items(),
+            'current_page' => $transactions->currentPage(),
+            'last_page' => $transactions->lastPage(),
+            'total' => $transactions->total(),
+        ]);
     }
 
     public function store(Request $request): JsonResponse
     {
         $request->validate([
-            'payment_method' => 'required|string|in:Tunai,Digital',
+            'payment_method' => 'required|string|in:Tunai,Digital,QRIS',
             'items' => 'required|array|min:1',
             'items.*.product_id' => 'required|integer|exists:menus,id,is_active,1',
             'items.*.quantity' => 'required|integer|min:1',

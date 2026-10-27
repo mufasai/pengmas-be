@@ -76,9 +76,10 @@ class AuthController extends Controller
 
     public function login(LoginRequest $request)
     {
-        $login_type = filter_var($request->login, FILTER_VALIDATE_EMAIL) ? 'email' : 'name';
-
-        $user = User::where($login_type, $request->login)->first();
+        $user = User::where('email', $request->login)
+            ->orWhere('username', $request->login)
+            ->orWhere('name', $request->login)
+            ->first();
 
         if (!$user || !Hash::check($request->password, $user->password)) {
             return response()->json(['message' => 'Kredensial tidak valid.'], 401);
@@ -94,7 +95,13 @@ class AuthController extends Controller
             'message' => 'Login berhasil.',
             'access_token' => $token,
             'token_type' => 'Bearer',
-            'user' => $user
+            'user' => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'username' => $user->username ?? $user->name,
+                'email' => $user->email,
+                'role' => $user->role ?? 'kasir',
+            ]
         ]);
     }
 
